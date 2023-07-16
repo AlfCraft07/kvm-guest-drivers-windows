@@ -3138,7 +3138,7 @@ VOID VioGpuAdapter::DpcRoutine(_In_ PDXGKRNL_INTERFACE pDxgkInterface)
                 {
                     pvbuf->complete_cb(pvbuf->complete_ctx);
                 }
-                if (!pvbuf->auto_release) {
+                if (pvbuf->auto_release) {
                     m_CtrlQueue.ReleaseBuffer(pvbuf);
                 }
             };
