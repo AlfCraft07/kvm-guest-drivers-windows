@@ -44,6 +44,10 @@ static BOOLEAN BuildSGElement(VirtIOBufferDescriptor* sg, PVOID buf, ULONG size)
     return FALSE;
 }
 
+static void NotifyEventCompleteCB(void* ctx) {
+    KeSetEvent((PKEVENT)ctx, IO_NO_INCREMENT, FALSE);
+}
+
 VioGpuQueue::VioGpuQueue()
 {
     m_pBuf = NULL;
@@ -243,7 +247,9 @@ BOOLEAN CtrlQueue::AskDisplayInfo(PGPU_VBUFFER* buf)
     cmd->type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO;
 
     KeInitializeEvent(&event, NotificationEvent, FALSE);
-    vbuf->event = &event;
+    vbuf->complete_cb = NotifyEventCompleteCB;
+    vbuf->complete_ctx = &event;
+    vbuf->auto_release = false;
 
     LARGE_INTEGER timeout = { 0 };
     timeout.QuadPart = Int32x32To64(1000, -10000);
@@ -294,7 +300,9 @@ BOOLEAN CtrlQueue::AskEdidInfo(PGPU_VBUFFER* buf, UINT id)
     cmd->scanout = id;
 
     KeInitializeEvent(&event, NotificationEvent, FALSE);
-    vbuf->event = &event;
+    vbuf->complete_cb = NotifyEventCompleteCB;
+    vbuf->complete_ctx = &event;
+    vbuf->auto_release = false;
 
     LARGE_INTEGER timeout = { 0 };
     timeout.QuadPart = Int32x32To64(1000, -10000);
@@ -370,7 +378,7 @@ void CtrlQueue::CreateResource(UINT res_id, UINT format, UINT width, UINT height
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-void CtrlQueue::UnrefResource(UINT res_id)
+void CtrlQueue::DestroyResource(UINT res_id)
 {
     PAGED_CODE();
 
@@ -389,7 +397,7 @@ void CtrlQueue::UnrefResource(UINT res_id)
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-void CtrlQueue::InvalBacking(UINT res_id)
+void CtrlQueue::DetachBacking(UINT res_id)
 {
     PAGED_CODE();
 
@@ -454,8 +462,7 @@ void CtrlQueue::ResFlush(UINT res_id, UINT width, UINT height, UINT x, UINT y)
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
-
-void CtrlQueue::TransferToHost2D(UINT res_id, ULONG offset, UINT width, UINT height, UINT x, UINT y, PUINT fence_id)
+void CtrlQueue::TransferToHost2D(UINT res_id, ULONG offset, UINT width, UINT height, UINT x, UINT y)
 {
     PAGED_CODE();
 
@@ -472,11 +479,6 @@ void CtrlQueue::TransferToHost2D(UINT res_id, ULONG offset, UINT width, UINT hei
     cmd->r.height = height;
     cmd->r.x = x;
     cmd->r.y = y;
-
-    if (fence_id) {
-        cmd->hdr.flags |= VIRTIO_GPU_FLAG_FENCE;
-        cmd->hdr.fence_id = *fence_id;
-    }
 
     QueueBuffer(vbuf);
 
@@ -508,7 +510,7 @@ void CtrlQueue::AttachBacking(UINT res_id, PGPU_MEM_ENTRY ents, UINT nents)
 
 PAGED_CODE_SEG_END
 
-#define SGLIST_SIZE 64
+#define SGLIST_SIZE 256
 UINT CtrlQueue::QueueBuffer(PGPU_VBUFFER buf)
 {
     //    PAGED_CODE();
@@ -711,6 +713,7 @@ PGPU_VBUFFER VioGpuBuf::GetBuf(
 
         pbuf->buf = (char *)((ULONG_PTR)pbuf + sizeof(*pbuf));
         pbuf->size = size;
+        pbuf->auto_release = true;  
 
         pbuf->resp_size = resp_size;
         if (resp_size <= MAX_INLINE_RESP_SIZE)

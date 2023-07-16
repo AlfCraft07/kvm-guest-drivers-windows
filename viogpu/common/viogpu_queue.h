@@ -49,8 +49,12 @@ typedef struct virtio_gpu_vbuffer {
 
     char *resp_buf;
     int resp_size;
-    PKEVENT event;
     LIST_ENTRY list_entry;
+
+    void (*complete_cb)(void *ctx);
+    void *complete_ctx;
+
+    bool auto_release;
 }GPU_VBUFFER, *PGPU_VBUFFER;
 //#pragma pack()
 
@@ -175,6 +179,10 @@ protected:
 class CtrlQueue : public VioGpuQueue
 {
 public:
+    CtrlQueue() : VioGpuQueue() {
+        m_FenceIdr = 0;
+    };
+
     PVOID AllocCmd(PGPU_VBUFFER* buf, int sz);
     PVOID AllocCmdResp(PGPU_VBUFFER* buf, int cmd_sz, PVOID resp_buf, int resp_sz);
 
@@ -182,16 +190,20 @@ public:
     PGPU_VBUFFER DequeueBuffer(_Out_ UINT* len);
 
     void CreateResource(UINT res_id, UINT format, UINT width, UINT height);
-    void UnrefResource(UINT id);
-    void InvalBacking(UINT id);
+    void DestroyResource(UINT id);
     void SetScanout(UINT scan_id, UINT res_id, UINT width, UINT height, UINT x, UINT y);
     void ResFlush(UINT res_id, UINT width, UINT height, UINT x, UINT y);
-    void TransferToHost2D(UINT res_id, ULONG offset, UINT width, UINT height, UINT x, UINT y, PUINT fence_id);
+    void TransferToHost2D(UINT res_id, ULONG offset, UINT width, UINT height, UINT x, UINT y);
     void AttachBacking(UINT res_id, PGPU_MEM_ENTRY ents, UINT nents);
+    void DetachBacking(UINT id);
+
     BOOLEAN GetDisplayInfo(PGPU_VBUFFER buf, UINT id, PULONG xres, PULONG yres);
     BOOLEAN AskDisplayInfo(PGPU_VBUFFER* buf);
     BOOLEAN AskEdidInfo(PGPU_VBUFFER* buf, UINT id);
     BOOLEAN GetEdidInfo(PGPU_VBUFFER buf, UINT id, PBYTE edid);
+
+private:
+    volatile LONG m_FenceIdr;
 };
 
 class CrsrQueue : public VioGpuQueue
